@@ -1,54 +1,100 @@
-import os
-import random
+import requests
 import pandas as pd
+import streamlit as st
 
-DRAW_PATH = "data/wtl_cup_draw.csv"
+BASE_URL = "https://fantasy.premierleague.com/api"
 
-def generate_or_load_draw(standings: pd.DataFrame, seed: int = 199171) -> pd.DataFrame:
-    if os.path.exists(DRAW_PATH):
-        return pd.read_csv(DRAW_PATH)
 
-    teams = standings[["entry_id", "team_name", "manager_name"]].copy()
-    random.seed(seed)
-    shuffled = teams.sample(frac=1, random_state=seed).reset_index(drop=True)
+@st.cache_data(ttl=60 * 60)
+def get_bootstrap():
+    return requests.get(f"{BASE_URL}/bootstrap-static/", timeout=30).json()
 
-    # 20 participants: first 8 play preliminary round, 12 get byes into R16.
-    prelim = shuffled.iloc[:8].reset_index(drop=True)
-    byes = shuffled.iloc[8:].reset_index(drop=True)
 
+@st.cache_data(ttl=60 * 60)
+def get_classic_league(league_id: int, page: int = 1):
+    url = f"{BASE_URL}/leagues-classic/{league_id}/standings/?page_standings={page}"
+    return requests.get(url, timeout=30).json()
+
+
+@st.cache_data(ttl=60 * 60)
+def get_all_league_standings(league_id: int) -> pd.DataFrame:
     rows = []
-    match_no = 1
-    for i in range(0, 8, 2):
-        a = prelim.iloc[i]
-        b = prelim.iloc[i + 1]
-        rows.append({
-            "round": "Preliminary",
-            "match": f"P{match_no}",
-            "GW_start": 19,
-            "GW_end": 20,
-            "team_a": a.team_name,
-            "manager_a": a.manager_name,
-            "entry_a": a.entry_id,
-            "team_b": b.team_name,
-            "manager_b": b.manager_name,
-            "entry_b": b.entry_id,
-        })
-        match_no += 1
+    page = 1
 
-    for i, row in byes.iterrows():
-        rows.append({
-            "round": "Bye to R16",
-            "match": f"B{i+1}",
-            "GW_start": 19,
-            "GW_end": 20,
-            "team_a": row.team_name,
-            "manager_a": row.manager_name,
-            "entry_a": row.entry_id,
-            "team_b": "BYE",
-            "manager_b": "",
-            "entry_b": None,
-        })
+    while True:
+        data = get_classic_league(league_id, page)
+        standings = data.get("standings", {})
+        results = standings.get("results", [])
+        rows.extend(results)
+
+        if not standings.get("has_next"):
+            break
+
+        page += 1
 
     df = pd.DataFrame(rows)
-    df.to_csv(DRAW_PATH, index=False)
+
+    if df.empty:
+        return df
+
+    keep_cols = [
+        "entry",
+        "entry_name",
+        "player_name",
+        "rank",
+        "last_rank",
+        "total",
+        "event_total",
+    ]
+
+    df = df[[c for c in keep_cols if c in df.columns]]
+
+    df = df.rename(
+        columns={
+            "entry": "entry_id",
+            "entry_name": "team_name",
+            "player_name": "manager_name",
+            "rank": "current_rank",
+            "last_rank": "last_rank",
+            "total": "total_points",
+            "event_total": "gw_points",
+        }
+    )
+
     return df
+
+
+@st.cache_data(ttl=60 * 60)
+def get_manager_history(entry_id: int):
+    return requests.get(f"{BASE_URL}/entry/{entry_id}/history/", timeout=30).json()
+
+
+@st.cache_data(ttl=60 * 60)
+def get_manager_picks(entry_id: int, event_id: int):
+    return requests.get(
+        f"{BASE_URL}/entry/{entry_id}/event/{event_id}/picks/",
+        timeout=30,
+    ).json()
+
+
+@st.cache_data(ttl=60 * 60)
+def get_manager_transfers(entry_id: int):
+    return requests.get(f"{BASE_URL}/entry/{entry_id}/transfers/", timeout=30).json()
+
+
+def current_gw() -> int:
+    data = get_bootstrap()
+    events = data.get("events", [])
+
+    current = [e for e in events if e.get("is_current")]
+
+    if current:
+        return int(current[0]["id"])
+
+    finished = [e for e in events if e.get("finished")]
+
+    return max([int(e["id"]) for e in finished], default=1)
+
+
+def events_df() -> pd.DataFrame:
+    return pd.DataFrame(get_bootstrap().get("events", []))
