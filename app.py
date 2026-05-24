@@ -176,32 +176,41 @@ elif page == "Transfer Efficiency":
     df2.insert(0, "rank", df2.index + 1)
     st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
 
+
 elif page == "WTL Cup":
     st.subheader("WTL Cup — Bracket View")
-    st.caption("20 teams: 12 byes, 4 first-round fixtures. R1 GW19–20, QF GW21–22, SF GW23–24, Final GW25–26.")
+    st.caption("32-slot bracket: 20 teams + 12 byes. R32 has 16 games, then R16, Quarter Final, Semi Final and one Final.")
     bracket = build_cup_bracket_live(standings)
+
     if bracket.empty:
         st.info("Cup bracket will activate once league standings are available.")
     else:
-        rounds = ["Round 1", "Quarter Final", "Semi Final", "Final"]
-        cols = st.columns(4)
+        rounds = ["R32", "R16", "Quarter Final", "Semi Final", "Final"]
+        cols = st.columns(5)
+
         for col, round_name in zip(cols, rounds):
             with col:
                 st.markdown(f"### {round_name}")
                 r = bracket[bracket["round"] == round_name]
+
                 if r.empty:
                     st.caption("Pending")
+
                 for _, row in r.iterrows():
                     winner_line = f"🏆 {row['winner']}" if row["winner"] else "Winner pending"
-                    st.markdown(f"""
-                    <div class="cup-card">
-                        <div class="cup-title">{row['GW window']}</div>
-                        <div class="cup-fixture">{row['team_a']}<br/>vs<br/>{row['team_b']}</div>
-                        <div class="cup-score">{row['team_a_points']} - {row['team_b_points']}</div>
-                        <div class="cup-winner">{winner_line}</div>
-                        <div class="cup-status">{row['status']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(
+                        f"""
+                        <div class="cup-card">
+                            <div class="cup-title">{row['match']} · {row['GW window']}</div>
+                            <div class="cup-fixture">{row['team_a']}<br/>vs<br/>{row['team_b']}</div>
+                            <div class="cup-score">{row['team_a_points']} - {row['team_b_points']}</div>
+                            <div class="cup-winner">{winner_line}</div>
+                            <div class="cup-status">{row['status']}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
         st.subheader("Cup Table")
         st.dataframe(bracket, use_container_width=True, hide_index=True)
 
