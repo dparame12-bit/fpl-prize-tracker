@@ -10,7 +10,7 @@ from prize_rules import (
     standings_history,
     mid_season_table, bench_points_table, biggest_climb_table,
     captain_points_table, highest_gw_without_chip,
-    worst_chip_usage_table, wooden_spoon_table,
+    worst_chip_usage_table, ctrl_z_breakdown_table, wooden_spoon_table,
 )
 from cup_logic import build_cup_bracket_live
 from utils import password_gate
@@ -226,9 +226,10 @@ elif page == "Prize Summary":
     st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
 
 
+
 elif page == "Special Awards":
     st.subheader("Special Awards — Live Leaderboards")
-    st.caption("Each section shows the full leaderboard and highlights the current winner.")
+    st.caption("Different views for each award so everyone can see how the winner is being decided.")
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "Mid Season",
@@ -240,112 +241,185 @@ elif page == "Special Awards":
         "Wooden Spoon",
     ])
 
-    def show_award_board(title, df, metric_col, note, chart_type="bar", ascending=False):
-        st.markdown(f"### {title}")
-        st.caption(note)
-
+    def winner_cards(df, metric_col):
         if df is None or df.empty:
             st.info("No data available yet.")
-            return
-
-        df = df.reset_index(drop=True)
-        df.insert(0, "rank", df.index + 1)
-
+            return False
         winner = df.iloc[0]
         c1, c2, c3 = st.columns(3)
         c1.metric("Current Winner", winner["team_name"])
         c2.metric("Manager", winner["manager_name"])
         c3.metric(metric_col.replace("_", " ").title(), winner[metric_col])
+        return True
 
-        chart_df = df.head(15).copy()
-
-        if chart_type == "line":
+    with tab1:
+        st.markdown("### Mid Season Winner")
+        st.caption("Leader after GW19 based on cumulative total points.")
+        df = mid_season_table(standings)
+        if winner_cards(df, "total_points_gw19"):
             chart = (
-                alt.Chart(chart_df)
-                .mark_line(point=True, strokeWidth=3)
+                alt.Chart(df.head(12))
+                .mark_arc(innerRadius=55)
                 .encode(
-                    x=alt.X("team_name:N", sort="-y", title="Team"),
-                    y=alt.Y(f"{metric_col}:Q", title=metric_col.replace("_", " ").title()),
-                    color=alt.Color("team_name:N", legend=None, scale=alt.Scale(scheme="tableau20")),
-                    tooltip=list(chart_df.columns),
-                )
-                .properties(height=360)
-            )
-        else:
-            sort_order = "x" if ascending else "-x"
-            chart = (
-                alt.Chart(chart_df)
-                .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5)
-                .encode(
-                    x=alt.X(f"{metric_col}:Q", title=metric_col.replace("_", " ").title()),
-                    y=alt.Y("team_name:N", sort=sort_order, title="Team"),
-                    color=alt.Color("team_name:N", legend=None, scale=alt.Scale(scheme="tableau20")),
-                    tooltip=list(chart_df.columns),
+                    theta=alt.Theta("total_points_gw19:Q"),
+                    color=alt.Color("team_name:N", scale=alt.Scale(scheme="tableau20")),
+                    tooltip=["team_name", "manager_name", "total_points_gw19"],
                 )
                 .properties(height=430)
             )
-
-        st.altair_chart(chart, use_container_width=True)
-        st.dataframe(top3_style(df, "rank"), use_container_width=True, hide_index=True)
-
-    with tab1:
-        show_award_board(
-            "Mid Season Winner",
-            mid_season_table(standings),
-            "total_points_gw19",
-            "Leader after GW19 based on cumulative total points.",
-        )
+            st.altair_chart(chart, use_container_width=True)
+            df2 = df.reset_index(drop=True)
+            df2.insert(0, "rank", df2.index + 1)
+            st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
 
     with tab2:
-        show_award_board(
-            "Most Points on Bench",
-            bench_points_table(standings),
-            "bench_points",
-            "Total points left on the bench across all gameweeks.",
-        )
+        st.markdown("### Most Points on Bench")
+        st.caption("Total points left on the bench across all gameweeks.")
+        df = bench_points_table(standings)
+        if winner_cards(df, "bench_points"):
+            chart = (
+                alt.Chart(df.head(15))
+                .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5)
+                .encode(
+                    x=alt.X("bench_points:Q", title="Bench Points"),
+                    y=alt.Y("team_name:N", sort="-x", title="Team"),
+                    color=alt.Color("bench_points:Q", scale=alt.Scale(scheme="orangered"), legend=None),
+                    tooltip=["team_name", "manager_name", "bench_points"],
+                )
+                .properties(height=460)
+            )
+            st.altair_chart(chart, use_container_width=True)
+            df2 = df.reset_index(drop=True)
+            df2.insert(0, "rank", df2.index + 1)
+            st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
 
     with tab3:
-        show_award_board(
-            "Biggest Climb",
-            biggest_climb_table(standings),
-            "climb_score",
-            "GW20–38 points minus GW1–19 points. Highest positive difference wins.",
-        )
+        st.markdown("### Biggest Climb")
+        st.caption("GW20–38 points minus GW1–19 points. Highest positive difference wins.")
+        df = biggest_climb_table(standings)
+        if winner_cards(df, "climb_score"):
+            melt = df.head(15).melt(
+                id_vars=["team_name", "manager_name", "climb_score"],
+                value_vars=["gw1_19_points", "gw20_38_points"],
+                var_name="period",
+                value_name="points",
+            )
+            chart = (
+                alt.Chart(melt)
+                .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                .encode(
+                    x=alt.X("points:Q", title="Points"),
+                    y=alt.Y("team_name:N", sort="-x", title="Team"),
+                    color=alt.Color("period:N", scale=alt.Scale(scheme="set2")),
+                    tooltip=["team_name", "manager_name", "period", "points", "climb_score"],
+                )
+                .properties(height=500)
+            )
+            st.altair_chart(chart, use_container_width=True)
+            df2 = df.reset_index(drop=True)
+            df2.insert(0, "rank", df2.index + 1)
+            st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
 
     with tab4:
-        show_award_board(
-            "Most Captain Points",
-            captain_points_table(standings),
-            "captain_points",
-            "Sum of captain points across all gameweeks, including captain multiplier.",
-        )
+        st.markdown("### Most Captain Points")
+        st.caption("Sum of captain points across all gameweeks, including captain multiplier.")
+        df = captain_points_table(standings)
+        if winner_cards(df, "captain_points"):
+            chart = (
+                alt.Chart(df.head(15))
+                .mark_circle(size=420)
+                .encode(
+                    x=alt.X("captain_points:Q", title="Captain Points"),
+                    y=alt.Y("team_name:N", sort="-x", title="Team"),
+                    color=alt.Color("team_name:N", scale=alt.Scale(scheme="category20"), legend=None),
+                    tooltip=["team_name", "manager_name", "captain_points"],
+                )
+                .properties(height=470)
+            )
+            st.altair_chart(chart, use_container_width=True)
+            df2 = df.reset_index(drop=True)
+            df2.insert(0, "rank", df2.index + 1)
+            st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
 
     with tab5:
-        show_award_board(
-            "Highest GW Score Without Chip",
-            highest_gw_without_chip(standings),
-            "points",
-            "Highest single-gameweek score where no Wildcard, Free Hit, Triple Captain or Bench Boost was used.",
-        )
+        st.markdown("### Highest GW Score Without Chip")
+        st.caption("Highest single-GW score where no Wildcard, Free Hit, Triple Captain or Bench Boost was used.")
+        df = highest_gw_without_chip(standings)
+        if winner_cards(df, "points"):
+            chart = (
+                alt.Chart(df.head(15))
+                .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5)
+                .encode(
+                    x=alt.X("team_name:N", sort="-y", title="Team"),
+                    y=alt.Y("points:Q", title="Best No-Chip GW Score"),
+                    color=alt.Color("GW:O", scale=alt.Scale(scheme="viridis"), title="GW"),
+                    tooltip=["team_name", "manager_name", "GW", "points"],
+                )
+                .properties(height=430)
+            )
+            st.altair_chart(chart, use_container_width=True)
+            df2 = df.reset_index(drop=True)
+            df2.insert(0, "rank", df2.index + 1)
+            st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
 
     with tab6:
-        df = worst_chip_usage_table(standings)
-        show_award_board(
-            "Ctrl + Z Award",
-            df,
-            "impact",
-            "Worst qualifying chip usage. Thresholds: TC < 6, FH < 40, BB < 8. Lower impact is worse.",
-            ascending=True,
-        )
+        st.markdown("### Ctrl + Z Award")
+        st.caption("Shows every TC/FH/BB use, the calculated score, and whether it qualifies. Winner is the lowest qualifying impact.")
+        df = ctrl_z_breakdown_table(standings)
+
+        if df is None or df.empty:
+            st.info("No qualifying chip data available yet.")
+        else:
+            q = df[df["qualifies_for_ctrl_z"]].copy()
+            if q.empty:
+                st.warning("No chip usage currently meets the Ctrl + Z thresholds.")
+            else:
+                winner = q.sort_values("impact", ascending=True).iloc[0]
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Current Ctrl + Z", winner["team_name"])
+                c2.metric("Chip", winner["chip"])
+                c3.metric("Impact", winner["impact"])
+
+            chart_df = df.copy()
+            chart_df["qualifies"] = chart_df["qualifies_for_ctrl_z"].map({True: "Qualifies", False: "Does not qualify"})
+            chart = (
+                alt.Chart(chart_df)
+                .mark_circle(size=300)
+                .encode(
+                    x=alt.X("GW:O", title="Gameweek"),
+                    y=alt.Y("impact:Q", title="Chip Impact"),
+                    color=alt.Color("chip:N", scale=alt.Scale(scheme="set1")),
+                    shape=alt.Shape("qualifies:N"),
+                    tooltip=["team_name", "manager_name", "chip", "GW", "tc_score", "fh_score", "bb_score", "impact", "qualifies_for_ctrl_z"],
+                )
+                .properties(height=430)
+            )
+            st.altair_chart(chart, use_container_width=True)
+
+            show = df.copy()
+            show.insert(0, "rank", range(1, len(show) + 1))
+            st.dataframe(top3_style(show, "rank"), use_container_width=True, hide_index=True)
 
     with tab7:
-        show_award_board(
-            "Wooden Spoon",
-            wooden_spoon_table(standings),
-            "total_points",
-            "Lowest total points among active managers. Active = at least 25 GWs with transfers or chips; fallback uses lowest overall if none qualify.",
-            ascending=True,
-        )
+        st.markdown("### Wooden Spoon")
+        st.caption("Lowest total points among active managers. Active = at least 25 GWs with transfers or chips; fallback uses lowest overall if none qualify.")
+        df = wooden_spoon_table(standings)
+        if winner_cards(df, "total_points"):
+            chart = (
+                alt.Chart(df.head(15))
+                .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5)
+                .encode(
+                    x=alt.X("total_points:Q", title="Total Points"),
+                    y=alt.Y("team_name:N", sort="x", title="Team"),
+                    color=alt.Color("active_gws:Q", scale=alt.Scale(scheme="blues"), title="Active GWs"),
+                    tooltip=["team_name", "manager_name", "total_points", "active_gws", "eligible"],
+                )
+                .properties(height=460)
+            )
+            st.altair_chart(chart, use_container_width=True)
+            df2 = df.reset_index(drop=True)
+            df2.insert(0, "rank", df2.index + 1)
+            st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
 
 
 elif page == "Rules":

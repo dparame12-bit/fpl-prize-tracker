@@ -157,29 +157,10 @@ def biggest_climb_table(standings: pd.DataFrame) -> pd.DataFrame:
 
 
 def worst_chip_usage_table(standings: pd.DataFrame) -> pd.DataFrame:
-    usage = chip_usage_awards(standings)
-    if usage.empty:
-        return usage
-    rows = []
-    for _, r in usage.iterrows():
-        impact = None
-        qualifies = False
-        if r['chip'] == 'Triple Captain':
-            impact = int(r['score'])
-            qualifies = impact < 6
-        elif r['chip'] == 'Free Hit':
-            impact = int(r['score'])
-            qualifies = impact < 40
-        elif r['chip'] == 'Bench Boost':
-            impact = int(r.get('bench_points', 0))
-            qualifies = impact < 8
-        if qualifies:
-            rows.append({'entry_id': r.entry_id, 'team_name': r.team_name, 'manager_name': r.manager_name, 'chip': r.chip, 'GW': int(r.GW), 'impact': impact})
-    df = pd.DataFrame(rows)
+    df = ctrl_z_breakdown_table(standings)
     if df.empty:
         return df
-    return df.sort_values('impact', ascending=True)
-
+    return df[df["qualifies_for_ctrl_z"]].sort_values("impact", ascending=True).reset_index(drop=True)
 
 def wooden_spoon_table(standings: pd.DataFrame) -> pd.DataFrame:
     usage = chip_usage_awards(standings)
@@ -279,3 +260,101 @@ def bench_points_table(standings: pd.DataFrame) -> pd.DataFrame:
         .sort_values("bench_points", ascending=False)
         .reset_index(drop=True)
     )
+
+
+def _chip_impact(entry_id: int, gw: int, chip_code: str, gw_score: int = 0, bench_points_fallback: int = 0) -> int:
+    """
+    Impact logic:
+    - TC: captain's final points * 3, using event-live player total and picks multiplier.
+    - FH: full GW score.
+    - BB: sum of bench players' points from event-live data.
+    """
+    try:
+        if chip_code == "freehit":
+            return int(gw_score or 0)
+
+        picks = get_manager_picks(int(entry_id), int(gw)).get("picks", [])
+        pts_map = _element_points(int(gw))
+
+        if chip_code == "3xc":
+            captain = next((p for p in picks if p.get("is_captain")), None)
+            if captain:
+                element_points = pts_map.get(int(captain["element"]), 0)
+                multiplier = int(captain.get("multiplier", 3))
+                return int(element_points * multiplier)
+            return int(gw_score or 0)
+
+        if chip_code == "bboost":
+            bench_total = 0
+            for p in picks:
+                # In FPL, bench positions are usually 12-15.
+                if int(p.get("position", 0)) > 11:
+                    bench_total += pts_map.get(int(p["element"]), 0)
+            if bench_total > 0:
+                return int(bench_total)
+            return int(bench_points_fallback or 0)
+
+    except Exception:
+        return int(gw_score or bench_points_fallback or 0)
+
+    return int(gw_score or bench_points_fallback or 0)
+
+def ctrl_z_breakdown_table(standings: pd.DataFrame) -> pd.DataFrame:
+    usage = chip_usage_awards(standings)
+    if usage.empty:
+        return pd.DataFrame()
+
+    rows = []
+    count_tracker = {}
+
+    for _, r in usage.iterrows():
+        if r["chip"] not in ["Triple Captain", "Free Hit", "Bench Boost"]:
+            continue
+
+        key = (int(r.entry_id), r["chip"])
+        count_tracker[key] = count_tracker.get(key, 0) + 1
+        chip_instance = f"{r['chip']} {count_tracker[key]}"
+
+        chip_code_map = {
+            "Triple Captain": "3xc",
+            "Free Hit": "freehit",
+            "Bench Boost": "bboost",
+        }
+        chip_code = chip_code_map[r["chip"]]
+        impact = _chip_impact(
+            int(r.entry_id),
+            int(r.GW),
+            chip_code,
+            gw_score=int(r.score or 0),
+            bench_points_fallback=int(r.get("bench_points", 0) or 0),
+        )
+
+        tc_score = impact if r["chip"] == "Triple Captain" else None
+        fh_score = impact if r["chip"] == "Free Hit" else None
+        bb_score = impact if r["chip"] == "Bench Boost" else None
+
+        qualifies = (
+            (r["chip"] == "Triple Captain" and impact < 6)
+            or (r["chip"] == "Free Hit" and impact < 40)
+            or (r["chip"] == "Bench Boost" and impact < 8)
+        )
+
+        rows.append({
+            "entry_id": r.entry_id,
+            "team_name": r.team_name,
+            "manager_name": r.manager_name,
+            "chip": chip_instance,
+            "GW": int(r.GW),
+            "tc_score": tc_score,
+            "fh_score": fh_score,
+            "bb_score": bb_score,
+            "impact": impact,
+            "threshold": "TC < 6 / FH < 40 / BB < 8",
+            "qualifies_for_ctrl_z": qualifies,
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    return df.sort_values(["qualifies_for_ctrl_z", "impact"], ascending=[False, True]).reset_index(drop=True)
