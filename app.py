@@ -10,7 +10,7 @@ from prize_rules import (
     standings_history,
     mid_season_table, bench_points_table, biggest_climb_table,
     captain_points_table, highest_gw_without_chip,
-    worst_chip_usage_table, ctrl_z_breakdown_table, wooden_spoon_table,
+    worst_chip_usage_table, ctrl_z_breakdown_table, transfer_tactician_table, wooden_spoon_table,
 )
 from cup_logic import build_cup_bracket_live
 from utils import password_gate
@@ -119,6 +119,7 @@ def pretty_prize_summary(df):
         "most_captain_points_prize": "Most Captain Points",
         "highest_gw_without_chip_prize": "Highest GW No Chip",
         "ctrl_z_award_prize": "Ctrl + Z",
+        "transfer_tactician_prize": "Transfer Tactician",
         "wooden_spoon_prize": "Wooden Spoon",
         "known_prize_total": "Total Prize",
     }
@@ -129,79 +130,40 @@ def pretty_prize_summary(df):
         "Bench Boost H2", "Triple Captain H1", "Triple Captain H2", "Free Hit H1",
         "Free Hit H2", "WTL Cup", "Transfer Efficiency", "Mid Season Winner",
         "Most Bench Points", "Biggest Climb", "Most Captain Points",
-        "Highest GW No Chip", "Ctrl + Z", "Wooden Spoon", "Total Prize"
+        "Highest GW No Chip", "Ctrl + Z", "Transfer Tactician", "Wooden Spoon", "Total Prize"
     ]
     return out[[c for c in preferred if c in out.columns]]
 
 def render_prize_summary_table(df):
-    # HTML table so first 6 columns stay sticky/frozen horizontally.
     display_df = pretty_prize_summary(df).copy()
+    prize_cols = [
+        c for c in display_df.columns
+        if c not in ["Prize Rank", "Entry ID", "Team", "Manager", "League Rank", "Total Points"]
+    ]
 
-    prize_cols = [c for c in display_df.columns if c not in ["Prize Rank", "Entry ID", "Team", "Manager", "League Rank", "Total Points"]]
+    def style_prize_cells(val, col):
+        try:
+            num = float(val)
+        except Exception:
+            num = 0
+        if col == "Total Prize":
+            return "background-color: #fef3c7; color: #92400e; font-weight: 900"
+        if col in prize_cols and num > 0:
+            return "background-color: #dcfce7; color: #166534; font-weight: 850"
+        return ""
 
-    def fmt_value(col, val):
-        if col in prize_cols:
-            try:
-                return f"₹{float(val):,.0f}" if float(val).is_integer() else f"₹{float(val):,.2f}"
-            except Exception:
-                return val
-        return val
+    def row_style(row):
+        styles = []
+        for col in display_df.columns:
+            styles.append(style_prize_cells(row[col], col))
+        return styles
 
-    html = """
-    <style>
-    .prize-wrap { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 14px; max-height: 650px; }
-    table.prize-table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: 13px; }
-    .prize-table th { background: #f8fafc; color: #475569; font-weight: 800; border-bottom: 1px solid #e5e7eb; padding: 9px 10px; text-align: left; white-space: nowrap; position: sticky; top: 0; z-index: 3; }
-    .prize-table td { border-bottom: 1px solid #e5e7eb; padding: 8px 10px; white-space: nowrap; background: white; }
-    .prize-table tr:nth-child(even) td { background: #fbfdff; }
-    .prize-table .won { background: #dcfce7 !important; color: #166534; font-weight: 850; }
-    .prize-table .total { background: #fef3c7 !important; color: #92400e; font-weight: 900; }
-    .prize-table .top1 td { background: #fff7cc; }
-    .prize-table .top2 td { background: #eef2ff; }
-    .prize-table .top3 td { background: #ffedd5; }
-    </style>
-    <div class="prize-wrap"><table class="prize-table">
-    """
-
-    lefts = [0, 80, 165, 345, 535, 625]
-    widths = [80, 85, 180, 190, 90, 105]
-
-    html += "<thead><tr>"
-    for i, col in enumerate(display_df.columns):
-        sticky = ""
-        if i < 6:
-            sticky = f"position: sticky; left: {lefts[i]}px; min-width:{widths[i]}px; z-index: 5;"
-        html += f'<th style="{sticky}">{col}</th>'
-    html += "</tr></thead><tbody>"
-
-    for _, row in display_df.iterrows():
-        rank = int(row["Prize Rank"]) if "Prize Rank" in row else 99
-        row_class = "top1" if rank == 1 else "top2" if rank == 2 else "top3" if rank == 3 else ""
-        html += f'<tr class="{row_class}">'
-        for i, col in enumerate(display_df.columns):
-            val = row[col]
-            cell_class = ""
-            try:
-                numeric_val = float(val)
-            except Exception:
-                numeric_val = 0
-
-            if col in prize_cols and numeric_val > 0:
-                cell_class = "won"
-            if col == "Total Prize":
-                cell_class = "total"
-
-            sticky = ""
-            bg = ""
-            if i < 6:
-                sticky = f"position: sticky; left: {lefts[i]}px; min-width:{widths[i]}px; z-index: 2;"
-                bg = "background: inherit;"
-
-            html += f'<td class="{cell_class}" style="{sticky}{bg}">{fmt_value(col, val)}</td>'
-        html += "</tr>"
-
-    html += "</tbody></table></div>"
-    st.markdown(html, unsafe_allow_html=True)
+    fmt = {c: "₹{:,.0f}" for c in prize_cols}
+    st.dataframe(
+        display_df.style.apply(row_style, axis=1).format(fmt),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 if page == "Dashboard":
@@ -365,7 +327,7 @@ Biggest Climb, Mid Season Winner, Best Transfer Efficiency, Most Captain Points,
 Best BB, TC, FH in H1 and H2.
 
 ### Transfer Tactician — ₹500
-Highest net points gained from transfers, including hits.
+Highest net points gained from transfers, including hits. Included in Special Awards and Prize Summary.
 
 ### Troll Awards — ₹500
 Ctrl + Z Award and Wooden Spoon.

@@ -368,3 +368,35 @@ def ctrl_z_breakdown_table(standings: pd.DataFrame) -> pd.DataFrame:
         return df
 
     return df.sort_values(["qualifies_for_ctrl_z", "impact"], ascending=[False, True]).reset_index(drop=True)
+
+
+def transfer_tactician_table(standings: pd.DataFrame) -> pd.DataFrame:
+    """
+    MVP logic: net points gained from transfer activity including hits.
+    Uses each GW's score minus transfer cost for GWs where the manager made transfers.
+    Higher is better.
+    """
+    rows = []
+
+    for _, row in standings.iterrows():
+        hist = get_manager_history(int(row.entry_id)).get("current", [])
+        transfer_gws = [h for h in hist if h.get("event_transfers", 0) > 0]
+
+        gross_points = sum(h.get("points", 0) for h in transfer_gws)
+        transfer_cost = sum(abs(h.get("event_transfers_cost", 0)) for h in transfer_gws)
+        net_transfer_points = gross_points - transfer_cost
+        transfer_count = sum(h.get("event_transfers", 0) for h in transfer_gws)
+        active_transfer_gws = len(transfer_gws)
+
+        rows.append({
+            "entry_id": row.entry_id,
+            "team_name": row.team_name,
+            "manager_name": row.manager_name,
+            "gross_points_on_transfer_gws": gross_points,
+            "transfer_cost": transfer_cost,
+            "net_transfer_points": net_transfer_points,
+            "transfer_count": transfer_count,
+            "active_transfer_gws": active_transfer_gws,
+        })
+
+    return pd.DataFrame(rows).sort_values("net_transfer_points", ascending=False).reset_index(drop=True)
