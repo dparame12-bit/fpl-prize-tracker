@@ -254,20 +254,48 @@ elif page == "Special Awards":
 
     with tab1:
         st.markdown("### Mid Season Winner")
-        st.caption("Leader after GW19 based on cumulative total points.")
+        st.caption("Leader after GW19 based on cumulative total points. If tied, the ₹500 prize is split equally.")
         df = mid_season_table(standings)
-        if winner_cards(df, "total_points_gw19"):
-            chart = (
-                alt.Chart(df.head(12))
-                .mark_arc(innerRadius=55)
+
+        if df is None or df.empty:
+            st.info("No GW19 data available yet.")
+        else:
+            winners = df[df["is_winner"]]
+            winner_names = ", ".join(winners["team_name"].tolist())
+            split_prize = winners["mid_season_prize"].iloc[0] if not winners.empty else 0
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Winner(s)", winner_names)
+            c2.metric("Winning GW19 Total", int(winners["total_points_gw19"].iloc[0]))
+            c3.metric("Prize Each", f"₹{split_prize:,.0f}" if float(split_prize).is_integer() else f"₹{split_prize:,.2f}")
+
+            chart_df = df.head(15).copy()
+            chart_df["winner_status"] = chart_df["is_winner"].map({True: "Winner", False: "Others"})
+
+            bars = (
+                alt.Chart(chart_df)
+                .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5)
                 .encode(
-                    theta=alt.Theta("total_points_gw19:Q"),
-                    color=alt.Color("team_name:N", scale=alt.Scale(scheme="tableau20")),
-                    tooltip=["team_name", "manager_name", "total_points_gw19"],
+                    x=alt.X("total_points_gw19:Q", title="Total Points at GW19"),
+                    y=alt.Y("team_name:N", sort="-x", title="Team"),
+                    color=alt.Color("winner_status:N", scale=alt.Scale(domain=["Winner", "Others"], range=["#f59e0b", "#94a3b8"])),
+                    tooltip=["team_name", "manager_name", "total_points_gw19", "mid_season_prize"],
                 )
-                .properties(height=430)
+                .properties(height=460)
             )
-            st.altair_chart(chart, use_container_width=True)
+
+            labels = (
+                alt.Chart(chart_df)
+                .mark_text(align="left", dx=5)
+                .encode(
+                    x="total_points_gw19:Q",
+                    y=alt.Y("team_name:N", sort="-x"),
+                    text="total_points_gw19:Q",
+                )
+            )
+
+            st.altair_chart(bars + labels, use_container_width=True)
+
             df2 = df.reset_index(drop=True)
             df2.insert(0, "rank", df2.index + 1)
             st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)

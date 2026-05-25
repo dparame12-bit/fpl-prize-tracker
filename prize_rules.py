@@ -232,7 +232,7 @@ def prize_summary(standings: pd.DataFrame) -> pd.DataFrame:
         base.loc[base['entry_id'] == bench.iloc[0].entry_id, 'most_bench_points_prize'] = 500
     prize_cols = [c for c in base.columns if 'prize' in c]
     for c in prize_cols:
-        base[c] = base[c].fillna(0).astype(int)
+        base[c] = base[c].fillna(0)
     base['known_prize_total'] = base[prize_cols].sum(axis=1)
     return base.sort_values(['known_prize_total', 'total_points'], ascending=[False, False])
 
@@ -241,13 +241,23 @@ def mid_season_table(standings: pd.DataFrame) -> pd.DataFrame:
     all_gw = _all_gw_rows(standings)
     if all_gw.empty or not (all_gw["GW"] == 19).any():
         return pd.DataFrame()
-    return (
+
+    df = (
         all_gw[all_gw["GW"] == 19]
         .rename(columns={"cumulative_points": "total_points_gw19"})
         .sort_values("total_points_gw19", ascending=False)
         [["entry_id", "team_name", "manager_name", "total_points_gw19"]]
         .reset_index(drop=True)
     )
+
+    top_score = df["total_points_gw19"].max()
+    tied_winners = df[df["total_points_gw19"] == top_score]
+    split_prize = round(500 / len(tied_winners), 2) if len(tied_winners) else 0
+
+    df["is_winner"] = df["total_points_gw19"] == top_score
+    df["mid_season_prize"] = df["is_winner"].map(lambda x: split_prize if x else 0)
+
+    return df
 
 def bench_points_table(standings: pd.DataFrame) -> pd.DataFrame:
     all_gw = _all_gw_rows(standings)
