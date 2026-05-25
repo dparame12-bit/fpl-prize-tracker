@@ -10,8 +10,7 @@ from prize_rules import (
     standings_history,
     mid_season_table, bench_points_table, biggest_climb_table,
     captain_points_table, highest_gw_without_chip,
-    worst_chip_usage_table, ctrl_z_breakdown_table,
-    transfer_tactician_table, wooden_spoon_table,
+    ctrl_z_breakdown_table, transfer_tactician_table, wooden_spoon_table,
 )
 from cup_logic import build_cup_bracket_live
 from utils import password_gate
@@ -61,7 +60,8 @@ with st.sidebar:
 
     page = st.radio("Go to", [
         "Dashboard", "League Standings", "GW Winners", "Manager of the Month",
-        "Chip Awards", "Transfer Efficiency", "WTL Cup", "Special Awards", "Rules", "Prize Summary"
+        "Chip Awards", "Transfer Efficiency", "WTL Cup", "Special Awards",
+        "Rules", "Prize Summary"
     ])
 
 st.markdown(f'<div class="big-title">{APP_TITLE}</div>', unsafe_allow_html=True)
@@ -328,7 +328,7 @@ Biggest Climb, Mid Season Winner, Best Transfer Efficiency, Most Captain Points,
 Best BB, TC, FH in H1 and H2.
 
 ### Transfer Tactician — ₹500
-Highest net points gained from transfers, including hits. Included in Special Awards and Prize Summary.
+Highest net points gained from transfers, including hits. Included in Special Awards and Prize Summary. Included in Special Awards and Prize Summary.
 
 ### Troll Awards — ₹500
 Ctrl + Z Award and Wooden Spoon.

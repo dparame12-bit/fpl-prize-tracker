@@ -194,47 +194,104 @@ def wtl_cup_winner_table(standings: pd.DataFrame) -> pd.DataFrame:
 
 
 def prize_summary(standings: pd.DataFrame) -> pd.DataFrame:
-    base = standings[['entry_id', 'team_name', 'manager_name', 'current_rank', 'total_points']].copy()
-    base['league_finish_prize'] = base['current_rank'].map(PRIZES['league_finishers']).fillna(0).astype(int)
+    base = standings[["entry_id", "team_name", "manager_name", "current_rank", "total_points"]].copy()
+    base["league_finish_prize"] = base["current_rank"].map(PRIZES["league_finishers"]).fillna(0)
+
     gw = gw_winners(standings)
-    base = base.merge(gw.groupby('team_name', as_index=False)['prize'].sum().rename(columns={'prize': 'gw_winner_prize'}), on='team_name', how='left') if not gw.empty else base.assign(gw_winner_prize=0)
+    if not gw.empty:
+        base = base.merge(
+            gw.groupby("team_name", as_index=False)["prize"].sum().rename(columns={"prize": "gw_winner_prize"}),
+            on="team_name",
+            how="left",
+        )
+    else:
+        base["gw_winner_prize"] = 0
+
     mom = manager_of_month(standings)
-    base = base.merge(mom.groupby('team_name', as_index=False)['prize'].sum().rename(columns={'prize': 'motm_prize'}), on='team_name', how='left') if not mom.empty else base.assign(motm_prize=0)
-    chip_cols = {'Best Bench Boost H1': 'bb_h1_prize', 'Best Bench Boost H2': 'bb_h2_prize', 'Best Triple Captain H1': 'tc_h1_prize', 'Best Triple Captain H2': 'tc_h2_prize', 'Best Free Hit H1': 'fh_h1_prize', 'Best Free Hit H2': 'fh_h2_prize'}
+    if not mom.empty:
+        base = base.merge(
+            mom.groupby("team_name", as_index=False)["prize"].sum().rename(columns={"prize": "motm_prize"}),
+            on="team_name",
+            how="left",
+        )
+    else:
+        base["motm_prize"] = 0
+
+    chip_cols = {
+        "Best Bench Boost H1": "bb_h1_prize",
+        "Best Bench Boost H2": "bb_h2_prize",
+        "Best Triple Captain H1": "tc_h1_prize",
+        "Best Triple Captain H2": "tc_h2_prize",
+        "Best Free Hit H1": "fh_h1_prize",
+        "Best Free Hit H2": "fh_h2_prize",
+    }
     for col in chip_cols.values():
         base[col] = 0
-    for _, r in chip_awards_live(standings).iterrows():
-        if r['status'] == 'Current Leader':
-            col = chip_cols.get(r['award'])
+
+    chips = chip_awards_live(standings)
+    for _, r in chips.iterrows():
+        if r.get("status") == "Current Leader":
+            col = chip_cols.get(r["award"])
             if col:
-                base.loc[base['team_name'] == r['team_name'], col] += int(r['prize'])
-    # Main special / cup / troll prize columns
-    for col in ['wtl_cup_prize', 'transfer_efficiency_prize', 'mid_season_winner_prize', 'most_bench_points_prize', 'biggest_climb_prize', 'most_captain_points_prize', 'highest_gw_without_chip_prize', 'ctrl_z_award_prize', 'wooden_spoon_prize']:
-        base[col] = 0
-    award_sources = [
-        ('wtl_cup_prize', wtl_cup_winner_table(standings), 800),
-        ('transfer_efficiency_prize', transfer_efficiency(standings).head(1), 500),
-        ('biggest_climb_prize', biggest_climb_table(standings).head(1), 500),
-        ('most_captain_points_prize', captain_points_table(standings).head(1), 500),
-        ('highest_gw_without_chip_prize', highest_gw_without_chip(standings).head(1), 500),
-        ('ctrl_z_award_prize', worst_chip_usage_table(standings).head(1), 250),
-        ('wooden_spoon_prize', wooden_spoon_table(standings).head(1), 250),
-    ]
-    for col, df, amount in award_sources:
-        if not df.empty:
-            base.loc[base['entry_id'] == df.iloc[0].entry_id, col] = amount
-    all_gw = _all_gw_rows(standings)
-    if not all_gw.empty and (all_gw['GW'] == 19).any():
-        mid = all_gw[all_gw['GW'] == 19].sort_values('cumulative_points', ascending=False).head(1)
-        base.loc[base['entry_id'] == mid.iloc[0].entry_id, 'mid_season_winner_prize'] = 500
-    if not all_gw.empty:
-        bench = all_gw.groupby('entry_id', as_index=False)['points_on_bench'].sum().sort_values('points_on_bench', ascending=False).head(1)
-        base.loc[base['entry_id'] == bench.iloc[0].entry_id, 'most_bench_points_prize'] = 500
-    prize_cols = [c for c in base.columns if 'prize' in c]
+                base.loc[base["team_name"] == r["team_name"], col] += float(r["prize"])
+
+    base["wtl_cup_prize"] = 0
+    cup = wtl_cup_winner_table(standings)
+    if not cup.empty:
+        base.loc[base["entry_id"] == cup.iloc[0].entry_id, "wtl_cup_prize"] = PRIZES["wtl_cup"]
+
+    base["transfer_efficiency_prize"] = 0
+    te = transfer_efficiency(standings).head(1)
+    if not te.empty:
+        base.loc[base["entry_id"] == te.iloc[0].entry_id, "transfer_efficiency_prize"] = 500
+
+    base["mid_season_winner_prize"] = 0
+    mid_table = mid_season_table(standings)
+    if not mid_table.empty:
+        for _, r in mid_table[mid_table["is_winner"]].iterrows():
+            base.loc[base["entry_id"] == r.entry_id, "mid_season_winner_prize"] = r.mid_season_prize
+
+    base["most_bench_points_prize"] = 0
+    bench = bench_points_table(standings).head(1)
+    if not bench.empty:
+        base.loc[base["entry_id"] == bench.iloc[0].entry_id, "most_bench_points_prize"] = 500
+
+    base["biggest_climb_prize"] = 0
+    bc = biggest_climb_table(standings).head(1)
+    if not bc.empty:
+        base.loc[base["entry_id"] == bc.iloc[0].entry_id, "biggest_climb_prize"] = 500
+
+    base["most_captain_points_prize"] = 0
+    cp = captain_points_table(standings).head(1)
+    if not cp.empty:
+        base.loc[base["entry_id"] == cp.iloc[0].entry_id, "most_captain_points_prize"] = 500
+
+    base["highest_gw_without_chip_prize"] = 0
+    hg = highest_gw_without_chip(standings).head(1)
+    if not hg.empty:
+        base.loc[base["entry_id"] == hg.iloc[0].entry_id, "highest_gw_without_chip_prize"] = 500
+
+    base["ctrl_z_award_prize"] = 0
+    wz = worst_chip_usage_table(standings)
+    if not wz.empty:
+        base.loc[base["entry_id"] == wz.iloc[0].entry_id, "ctrl_z_award_prize"] = 250
+
+    base["transfer_tactician_prize"] = 0
+    tt = transfer_tactician_table(standings).head(1)
+    if not tt.empty:
+        base.loc[base["entry_id"] == tt.iloc[0].entry_id, "transfer_tactician_prize"] = 500
+
+    base["wooden_spoon_prize"] = 0
+    ws = wooden_spoon_table(standings).head(1)
+    if not ws.empty:
+        base.loc[base["entry_id"] == ws.iloc[0].entry_id, "wooden_spoon_prize"] = 250
+
+    prize_cols = [c for c in base.columns if "prize" in c]
     for c in prize_cols:
         base[c] = base[c].fillna(0)
-    base['known_prize_total'] = base[prize_cols].sum(axis=1)
-    return base.sort_values(['known_prize_total', 'total_points'], ascending=[False, False])
+
+    base["known_prize_total"] = base[prize_cols].sum(axis=1)
+    return base.sort_values(["known_prize_total", "total_points"], ascending=[False, False])
 
 
 def mid_season_table(standings: pd.DataFrame) -> pd.DataFrame:
