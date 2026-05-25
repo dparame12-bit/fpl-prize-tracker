@@ -1,142 +1,256 @@
 import pandas as pd
 from config import PRIZES, MONTH_GW_MAP
-from fpl_api import get_manager_history, current_gw
+from fpl_api import get_manager_history, get_manager_picks, get_event_live, current_gw
+from cup_logic import build_cup_bracket_live
+
+
+def _element_points(event_id: int) -> dict:
+    live = get_event_live(event_id)
+    return {int(e['id']): e.get('stats', {}).get('total_points', 0) for e in live.get('elements', [])}
+
 
 def league_finisher_prizes(standings: pd.DataFrame) -> pd.DataFrame:
     df = standings.copy()
-    df["league_finish_prize"] = df["current_rank"].map(PRIZES["league_finishers"]).fillna(0).astype(int)
-    return df[["entry_id", "team_name", "manager_name", "current_rank", "total_points", "gw_points", "league_finish_prize"]]
+    df['league_finish_prize'] = df['current_rank'].map(PRIZES['league_finishers']).fillna(0).astype(int)
+    return df[['entry_id', 'team_name', 'manager_name', 'current_rank', 'total_points', 'gw_points', 'league_finish_prize']]
+
 
 def _all_gw_rows(standings: pd.DataFrame) -> pd.DataFrame:
     rows = []
     gw_now = current_gw()
     for _, row in standings.iterrows():
-        hist = get_manager_history(int(row.entry_id)).get("current", [])
+        hist = get_manager_history(int(row.entry_id)).get('current', [])
         for h in hist:
-            event = int(h["event"])
+            event = int(h['event'])
             if event <= gw_now:
                 rows.append({
-                    "GW": event, "entry_id": row.entry_id,
-                    "team_name": row.team_name, "manager_name": row.manager_name,
-                    "points": h.get("points", 0),
-                    "cumulative_points": h.get("total_points", 0),
-                    "transfers_cost": h.get("event_transfers_cost", 0),
-                    "points_on_bench": h.get("points_on_bench", 0),
+                    'GW': event,
+                    'entry_id': row.entry_id,
+                    'team_name': row.team_name,
+                    'manager_name': row.manager_name,
+                    'points': h.get('points', 0),
+                    'cumulative_points': h.get('total_points', 0),
+                    'transfers_cost': h.get('event_transfers_cost', 0),
+                    'points_on_bench': h.get('points_on_bench', 0),
                 })
     return pd.DataFrame(rows)
+
 
 def standings_history(standings: pd.DataFrame) -> pd.DataFrame:
     df = _all_gw_rows(standings)
     if df.empty:
         return df
-    df["rank"] = df.groupby("GW")["cumulative_points"].rank(method="min", ascending=False).astype(int)
-    return df.sort_values(["GW", "rank"])
+    df['rank'] = df.groupby('GW')['cumulative_points'].rank(method='min', ascending=False).astype(int)
+    return df.sort_values(['GW', 'rank'])
+
 
 def gw_winners(standings: pd.DataFrame) -> pd.DataFrame:
     df = _all_gw_rows(standings)
     if df.empty:
         return df
-    df["prize"] = df["GW"].map(PRIZES["gw_bonus"]).fillna(PRIZES["gw_normal"]).astype(int)
-    return df.sort_values(["GW", "points"], ascending=[True, False]).groupby("GW", as_index=False).head(1).reset_index(drop=True)[["GW", "team_name", "manager_name", "points", "prize"]]
+    df['prize'] = df['GW'].map(PRIZES['gw_bonus']).fillna(PRIZES['gw_normal']).astype(int)
+    return df.sort_values(['GW', 'points'], ascending=[True, False]).groupby('GW', as_index=False).head(1).reset_index(drop=True)[['GW', 'team_name', 'manager_name', 'points', 'prize']]
+
 
 def manager_of_month(standings: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for month_no, (month, gws) in enumerate(MONTH_GW_MAP.items(), start=1):
         for _, row in standings.iterrows():
-            hist = get_manager_history(int(row.entry_id)).get("current", [])
-            points = sum(h.get("points", 0) for h in hist if int(h["event"]) in gws)
-            played = sum(1 for h in hist if int(h["event"]) in gws)
+            hist = get_manager_history(int(row.entry_id)).get('current', [])
+            points = sum(h.get('points', 0) for h in hist if int(h['event']) in gws)
+            played = sum(1 for h in hist if int(h['event']) in gws)
             if played > 0:
-                rows.append({"month_order": month_no, "month": month, "team_name": row.team_name, "manager_name": row.manager_name, "month_points": points, "prize": PRIZES["manager_of_month"]})
+                rows.append({'month_order': month_no, 'month': month, 'team_name': row.team_name, 'manager_name': row.manager_name, 'month_points': points, 'prize': PRIZES['manager_of_month']})
     df = pd.DataFrame(rows)
     if df.empty:
         return df
-    return df.sort_values(["month_order", "month_points"], ascending=[True, False]).groupby("month_order", as_index=False).head(1).sort_values("month_order").reset_index(drop=True)[["month", "team_name", "manager_name", "month_points", "prize"]]
+    return df.sort_values(['month_order', 'month_points'], ascending=[True, False]).groupby('month_order', as_index=False).head(1).sort_values('month_order').reset_index(drop=True)[['month', 'team_name', 'manager_name', 'month_points', 'prize']]
+
 
 def transfer_efficiency(standings: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, row in standings.iterrows():
-        hist = get_manager_history(int(row.entry_id)).get("current", [])
-        total_points = sum(h.get("points", 0) for h in hist)
-        penalty_points = sum(abs(h.get("event_transfers_cost", 0)) for h in hist)
+        hist = get_manager_history(int(row.entry_id)).get('current', [])
+        total_points = sum(h.get('points', 0) for h in hist)
+        penalty_points = sum(abs(h.get('event_transfers_cost', 0)) for h in hist)
         hits = penalty_points // 4
         denominator = 38 + hits
         efficiency = (total_points - penalty_points) / denominator if denominator else 0
-        rows.append({"entry_id": row.entry_id, "team_name": row.team_name, "manager_name": row.manager_name, "total_points": total_points, "penalty_points": penalty_points, "hits": hits, "transfer_efficiency": round(efficiency, 2)})
-    return pd.DataFrame(rows).sort_values("transfer_efficiency", ascending=False)
+        rows.append({'entry_id': row.entry_id, 'team_name': row.team_name, 'manager_name': row.manager_name, 'total_points': total_points, 'penalty_points': penalty_points, 'hits': hits, 'transfer_efficiency': round(efficiency, 2)})
+    return pd.DataFrame(rows).sort_values('transfer_efficiency', ascending=False)
+
 
 def chip_usage_awards(standings: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, row in standings.iterrows():
         hist = get_manager_history(int(row.entry_id))
-        for c in hist.get("chips", []):
-            chip = c.get("name")
-            gw = int(c.get("event", 0))
-            chip_label = {"bboost": "Bench Boost", "3xc": "Triple Captain", "freehit": "Free Hit", "wildcard": "Wildcard"}.get(chip, chip)
-            gw_row = next((h for h in hist.get("current", []) if int(h["event"]) == gw), {})
-            rows.append({"entry_id": row.entry_id, "team_name": row.team_name, "manager_name": row.manager_name, "chip": chip_label, "GW": gw, "half": "H1" if gw <= 19 else "H2", "score": gw_row.get("points", 0)})
+        for c in hist.get('chips', []):
+            chip = c.get('name')
+            gw = int(c.get('event', 0))
+            chip_label = {'bboost': 'Bench Boost', '3xc': 'Triple Captain', 'freehit': 'Free Hit', 'wildcard': 'Wildcard'}.get(chip, chip)
+            gw_row = next((h for h in hist.get('current', []) if int(h['event']) == gw), {})
+            rows.append({'entry_id': row.entry_id, 'team_name': row.team_name, 'manager_name': row.manager_name, 'chip_code': chip, 'chip': chip_label, 'GW': gw, 'half': 'H1' if gw <= 19 else 'H2', 'score': gw_row.get('points', 0), 'bench_points': gw_row.get('points_on_bench', 0)})
     return pd.DataFrame(rows)
+
 
 def chip_awards_live(standings: pd.DataFrame) -> pd.DataFrame:
     usage = chip_usage_awards(standings)
     rows = []
-    for chip in ["Bench Boost", "Triple Captain", "Free Hit"]:
-        for half in ["H1", "H2"]:
-            award = f"Best {chip} {half}"
+    for chip in ['Bench Boost', 'Triple Captain', 'Free Hit']:
+        for half in ['H1', 'H2']:
+            award = f'Best {chip} {half}'
             if usage.empty:
-                rows.append({"award": award, "status": "No usage yet", "team_name": "", "manager_name": "", "GW": "", "score": "", "prize": 250})
+                rows.append({'award': award, 'status': 'No usage yet', 'team_name': '', 'manager_name': '', 'GW': '', 'score': '', 'prize': 250})
                 continue
-            temp = usage[(usage["chip"] == chip) & (usage["half"] == half)]
+            temp = usage[(usage['chip'] == chip) & (usage['half'] == half)]
             if temp.empty:
-                rows.append({"award": award, "status": "No usage yet", "team_name": "", "manager_name": "", "GW": "", "score": "", "prize": 250})
+                rows.append({'award': award, 'status': 'No usage yet', 'team_name': '', 'manager_name': '', 'GW': '', 'score': '', 'prize': 250})
             else:
-                w = temp.sort_values("score", ascending=False).iloc[0]
-                rows.append({"award": award, "status": "Current Leader", "team_name": w.team_name, "manager_name": w.manager_name, "GW": int(w.GW), "score": int(w.score), "prize": 250})
+                w = temp.sort_values('score', ascending=False).iloc[0]
+                rows.append({'award': award, 'status': 'Current Leader', 'team_name': w.team_name, 'manager_name': w.manager_name, 'GW': int(w.GW), 'score': int(w.score), 'prize': 250})
     return pd.DataFrame(rows)
 
+
+def captain_points_table(standings: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    gw_now = current_gw()
+    for _, row in standings.iterrows():
+        total_captain_points = 0
+        for gw in range(1, gw_now + 1):
+            try:
+                picks = get_manager_picks(int(row.entry_id), gw).get('picks', [])
+                pts_map = _element_points(gw)
+                captain = next((p for p in picks if p.get('is_captain')), None)
+                if captain:
+                    total_captain_points += pts_map.get(int(captain['element']), 0) * int(captain.get('multiplier', 0))
+            except Exception:
+                continue
+        rows.append({'entry_id': row.entry_id, 'team_name': row.team_name, 'manager_name': row.manager_name, 'captain_points': total_captain_points})
+    return pd.DataFrame(rows).sort_values('captain_points', ascending=False)
+
+
+def highest_gw_without_chip(standings: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    usage = chip_usage_awards(standings)
+    excluded = {}
+    if not usage.empty:
+        for _, r in usage.iterrows():
+            if r['chip'] in ['Bench Boost', 'Triple Captain', 'Free Hit', 'Wildcard']:
+                excluded.setdefault(int(r.entry_id), set()).add(int(r.GW))
+    for _, row in standings.iterrows():
+        hist = get_manager_history(int(row.entry_id)).get('current', [])
+        valid = [h for h in hist if int(h['event']) not in excluded.get(int(row.entry_id), set())]
+        if valid:
+            best = max(valid, key=lambda x: x.get('points', 0))
+            rows.append({'entry_id': row.entry_id, 'team_name': row.team_name, 'manager_name': row.manager_name, 'GW': int(best['event']), 'points': best.get('points', 0)})
+    return pd.DataFrame(rows).sort_values('points', ascending=False)
+
+
+def biggest_climb_table(standings: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for _, row in standings.iterrows():
+        hist = get_manager_history(int(row.entry_id)).get('current', [])
+        h1 = sum(h.get('points', 0) for h in hist if 1 <= int(h['event']) <= 19)
+        h2 = sum(h.get('points', 0) for h in hist if 20 <= int(h['event']) <= 38)
+        rows.append({'entry_id': row.entry_id, 'team_name': row.team_name, 'manager_name': row.manager_name, 'gw1_19_points': h1, 'gw20_38_points': h2, 'climb_score': h2 - h1})
+    return pd.DataFrame(rows).sort_values('climb_score', ascending=False)
+
+
+def worst_chip_usage_table(standings: pd.DataFrame) -> pd.DataFrame:
+    usage = chip_usage_awards(standings)
+    if usage.empty:
+        return usage
+    rows = []
+    for _, r in usage.iterrows():
+        impact = None
+        qualifies = False
+        if r['chip'] == 'Triple Captain':
+            impact = int(r['score'])
+            qualifies = impact < 6
+        elif r['chip'] == 'Free Hit':
+            impact = int(r['score'])
+            qualifies = impact < 40
+        elif r['chip'] == 'Bench Boost':
+            impact = int(r.get('bench_points', 0))
+            qualifies = impact < 8
+        if qualifies:
+            rows.append({'entry_id': r.entry_id, 'team_name': r.team_name, 'manager_name': r.manager_name, 'chip': r.chip, 'GW': int(r.GW), 'impact': impact})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    return df.sort_values('impact', ascending=True)
+
+
+def wooden_spoon_table(standings: pd.DataFrame) -> pd.DataFrame:
+    usage = chip_usage_awards(standings)
+    rows = []
+    for _, row in standings.iterrows():
+        hist = get_manager_history(int(row.entry_id)).get('current', [])
+        transfer_gws = {int(h['event']) for h in hist if h.get('event_transfers', 0) > 0}
+        chip_gws = set() if usage.empty else set(usage[usage['entry_id'] == row.entry_id]['GW'].astype(int).tolist())
+        active_gws = len(transfer_gws.union(chip_gws))
+        rows.append({'entry_id': row.entry_id, 'team_name': row.team_name, 'manager_name': row.manager_name, 'total_points': row.total_points, 'active_gws': active_gws, 'eligible': active_gws >= 25})
+    df = pd.DataFrame(rows)
+    eligible = df[df['eligible']]
+    if eligible.empty:
+        eligible = df.copy()
+    return eligible.sort_values('total_points', ascending=True)
+
+
+def wtl_cup_winner_table(standings: pd.DataFrame) -> pd.DataFrame:
+    try:
+        bracket = build_cup_bracket_live(standings)
+        final = bracket[(bracket['round'] == 'Final') & (bracket['status'].isin(['Completed', 'Bye']))]
+        if final.empty:
+            return pd.DataFrame()
+        winner = final.iloc[0]['winner']
+        row = standings[standings['team_name'] == winner].head(1)
+        if row.empty:
+            return pd.DataFrame()
+        return pd.DataFrame([{'entry_id': row.iloc[0].entry_id, 'team_name': row.iloc[0].team_name, 'manager_name': row.iloc[0].manager_name, 'prize': PRIZES['wtl_cup']}])
+    except Exception:
+        return pd.DataFrame()
+
+
 def prize_summary(standings: pd.DataFrame) -> pd.DataFrame:
-    base = standings[["entry_id", "team_name", "manager_name", "current_rank", "total_points"]].copy()
-    base["league_finish_prize"] = base["current_rank"].map(PRIZES["league_finishers"]).fillna(0).astype(int)
-
+    base = standings[['entry_id', 'team_name', 'manager_name', 'current_rank', 'total_points']].copy()
+    base['league_finish_prize'] = base['current_rank'].map(PRIZES['league_finishers']).fillna(0).astype(int)
     gw = gw_winners(standings)
-    if not gw.empty:
-        base = base.merge(gw.groupby("team_name", as_index=False)["prize"].sum().rename(columns={"prize": "gw_winner_prize"}), on="team_name", how="left")
-    else:
-        base["gw_winner_prize"] = 0
-
+    base = base.merge(gw.groupby('team_name', as_index=False)['prize'].sum().rename(columns={'prize': 'gw_winner_prize'}), on='team_name', how='left') if not gw.empty else base.assign(gw_winner_prize=0)
     mom = manager_of_month(standings)
-    if not mom.empty:
-        base = base.merge(mom.groupby("team_name", as_index=False)["prize"].sum().rename(columns={"prize": "motm_prize"}), on="team_name", how="left")
-    else:
-        base["motm_prize"] = 0
-
-    chip_cols = {"Best Bench Boost H1": "bb_h1_prize", "Best Bench Boost H2": "bb_h2_prize", "Best Triple Captain H1": "tc_h1_prize", "Best Triple Captain H2": "tc_h2_prize", "Best Free Hit H1": "fh_h1_prize", "Best Free Hit H2": "fh_h2_prize"}
+    base = base.merge(mom.groupby('team_name', as_index=False)['prize'].sum().rename(columns={'prize': 'motm_prize'}), on='team_name', how='left') if not mom.empty else base.assign(motm_prize=0)
+    chip_cols = {'Best Bench Boost H1': 'bb_h1_prize', 'Best Bench Boost H2': 'bb_h2_prize', 'Best Triple Captain H1': 'tc_h1_prize', 'Best Triple Captain H2': 'tc_h2_prize', 'Best Free Hit H1': 'fh_h1_prize', 'Best Free Hit H2': 'fh_h2_prize'}
     for col in chip_cols.values():
         base[col] = 0
-    chips = chip_awards_live(standings)
-    for _, r in chips.iterrows():
-        if r["status"] == "Current Leader":
-            col = chip_cols.get(r["award"])
+    for _, r in chip_awards_live(standings).iterrows():
+        if r['status'] == 'Current Leader':
+            col = chip_cols.get(r['award'])
             if col:
-                base.loc[base["team_name"] == r["team_name"], col] += int(r["prize"])
-
-    te = transfer_efficiency(standings).head(1)
-    base["transfer_efficiency_prize"] = 0
-    if not te.empty:
-        base.loc[base["entry_id"] == te.iloc[0].entry_id, "transfer_efficiency_prize"] = 500
-
+                base.loc[base['team_name'] == r['team_name'], col] += int(r['prize'])
+    # Main special / cup / troll prize columns
+    for col in ['wtl_cup_prize', 'transfer_efficiency_prize', 'mid_season_winner_prize', 'most_bench_points_prize', 'biggest_climb_prize', 'most_captain_points_prize', 'highest_gw_without_chip_prize', 'ctrl_z_award_prize', 'wooden_spoon_prize']:
+        base[col] = 0
+    award_sources = [
+        ('wtl_cup_prize', wtl_cup_winner_table(standings), 800),
+        ('transfer_efficiency_prize', transfer_efficiency(standings).head(1), 500),
+        ('biggest_climb_prize', biggest_climb_table(standings).head(1), 500),
+        ('most_captain_points_prize', captain_points_table(standings).head(1), 500),
+        ('highest_gw_without_chip_prize', highest_gw_without_chip(standings).head(1), 500),
+        ('ctrl_z_award_prize', worst_chip_usage_table(standings).head(1), 250),
+        ('wooden_spoon_prize', wooden_spoon_table(standings).head(1), 250),
+    ]
+    for col, df, amount in award_sources:
+        if not df.empty:
+            base.loc[base['entry_id'] == df.iloc[0].entry_id, col] = amount
     all_gw = _all_gw_rows(standings)
-    base["mid_season_winner_prize"] = 0
-    base["most_bench_points_prize"] = 0
-    if not all_gw.empty and (all_gw["GW"] == 19).any():
-        mid = all_gw[all_gw["GW"] == 19].sort_values("cumulative_points", ascending=False).head(1)
-        base.loc[base["entry_id"] == mid.iloc[0].entry_id, "mid_season_winner_prize"] = 500
+    if not all_gw.empty and (all_gw['GW'] == 19).any():
+        mid = all_gw[all_gw['GW'] == 19].sort_values('cumulative_points', ascending=False).head(1)
+        base.loc[base['entry_id'] == mid.iloc[0].entry_id, 'mid_season_winner_prize'] = 500
     if not all_gw.empty:
-        bench = all_gw.groupby("entry_id", as_index=False)["points_on_bench"].sum().sort_values("points_on_bench", ascending=False).head(1)
-        base.loc[base["entry_id"] == bench.iloc[0].entry_id, "most_bench_points_prize"] = 500
-
-    prize_cols = [c for c in base.columns if "prize" in c]
+        bench = all_gw.groupby('entry_id', as_index=False)['points_on_bench'].sum().sort_values('points_on_bench', ascending=False).head(1)
+        base.loc[base['entry_id'] == bench.iloc[0].entry_id, 'most_bench_points_prize'] = 500
+    prize_cols = [c for c in base.columns if 'prize' in c]
     for c in prize_cols:
         base[c] = base[c].fillna(0).astype(int)
-    base["known_prize_total"] = base[prize_cols].sum(axis=1)
-    return base.sort_values(["known_prize_total", "total_points"], ascending=[False, False])
+    base['known_prize_total'] = base[prize_cols].sum(axis=1)
+    return base.sort_values(['known_prize_total', 'total_points'], ascending=[False, False])

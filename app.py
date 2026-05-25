@@ -226,7 +226,7 @@ elif page == "Rules":
     st.subheader("Prize Rules")
     st.markdown("""
 ### League Finishers — ₹18,700
-1st ₹6,000 · 2nd ₹4,100 · 3rd ₹2,600 · 4th ₹1,500 · 5th ₹1,100 · 6th ₹800
+1st ₹6,500 · 2nd ₹4,600 · 3rd ₹3,100 · 4th ₹2,000 · 5th ₹1,600 · 6th ₹900
 
 ### Gameweek Winners — ₹6,000
 36 GWs × ₹150 = ₹5,400  
