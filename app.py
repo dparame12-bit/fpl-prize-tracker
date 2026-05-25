@@ -10,7 +10,8 @@ from prize_rules import (
     standings_history,
     mid_season_table, bench_points_table, biggest_climb_table,
     captain_points_table, highest_gw_without_chip,
-    worst_chip_usage_table, ctrl_z_breakdown_table, transfer_tactician_table, wooden_spoon_table,
+    worst_chip_usage_table, ctrl_z_breakdown_table,
+    transfer_tactician_table, wooden_spoon_table,
 )
 from cup_logic import build_cup_bracket_live
 from utils import password_gate
