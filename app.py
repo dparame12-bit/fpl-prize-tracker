@@ -8,6 +8,9 @@ from prize_rules import (
     league_finisher_prizes, gw_winners, manager_of_month,
     transfer_efficiency, chip_awards_live, prize_summary,
     standings_history,
+    mid_season_table, bench_points_table, biggest_climb_table,
+    captain_points_table, highest_gw_without_chip,
+    worst_chip_usage_table, wooden_spoon_table,
 )
 from cup_logic import build_cup_bracket_live
 from utils import password_gate
@@ -57,7 +60,7 @@ with st.sidebar:
 
     page = st.radio("Go to", [
         "Dashboard", "League Standings", "GW Winners", "Manager of the Month",
-        "Chip Awards", "Transfer Efficiency", "WTL Cup", "Prize Summary", "Rules"
+        "Chip Awards", "Transfer Efficiency", "WTL Cup", "Prize Summary", "Special Awards", "Rules"
     ])
 
 st.markdown(f'<div class="big-title">{APP_TITLE}</div>', unsafe_allow_html=True)
@@ -221,6 +224,129 @@ elif page == "Prize Summary":
     df2 = df.reset_index(drop=True)
     df2.insert(0, "rank", df2.index + 1)
     st.dataframe(top3_style(df2, "rank"), use_container_width=True, hide_index=True)
+
+
+elif page == "Special Awards":
+    st.subheader("Special Awards — Live Leaderboards")
+    st.caption("Each section shows the full leaderboard and highlights the current winner.")
+
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "Mid Season",
+        "Bench Points",
+        "Biggest Climb",
+        "Captain Points",
+        "Highest GW No Chip",
+        "Ctrl + Z",
+        "Wooden Spoon",
+    ])
+
+    def show_award_board(title, df, metric_col, note, chart_type="bar", ascending=False):
+        st.markdown(f"### {title}")
+        st.caption(note)
+
+        if df is None or df.empty:
+            st.info("No data available yet.")
+            return
+
+        df = df.reset_index(drop=True)
+        df.insert(0, "rank", df.index + 1)
+
+        winner = df.iloc[0]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Current Winner", winner["team_name"])
+        c2.metric("Manager", winner["manager_name"])
+        c3.metric(metric_col.replace("_", " ").title(), winner[metric_col])
+
+        chart_df = df.head(15).copy()
+
+        if chart_type == "line":
+            chart = (
+                alt.Chart(chart_df)
+                .mark_line(point=True, strokeWidth=3)
+                .encode(
+                    x=alt.X("team_name:N", sort="-y", title="Team"),
+                    y=alt.Y(f"{metric_col}:Q", title=metric_col.replace("_", " ").title()),
+                    color=alt.Color("team_name:N", legend=None, scale=alt.Scale(scheme="tableau20")),
+                    tooltip=list(chart_df.columns),
+                )
+                .properties(height=360)
+            )
+        else:
+            sort_order = "x" if ascending else "-x"
+            chart = (
+                alt.Chart(chart_df)
+                .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5)
+                .encode(
+                    x=alt.X(f"{metric_col}:Q", title=metric_col.replace("_", " ").title()),
+                    y=alt.Y("team_name:N", sort=sort_order, title="Team"),
+                    color=alt.Color("team_name:N", legend=None, scale=alt.Scale(scheme="tableau20")),
+                    tooltip=list(chart_df.columns),
+                )
+                .properties(height=430)
+            )
+
+        st.altair_chart(chart, use_container_width=True)
+        st.dataframe(top3_style(df, "rank"), use_container_width=True, hide_index=True)
+
+    with tab1:
+        show_award_board(
+            "Mid Season Winner",
+            mid_season_table(standings),
+            "total_points_gw19",
+            "Leader after GW19 based on cumulative total points.",
+        )
+
+    with tab2:
+        show_award_board(
+            "Most Points on Bench",
+            bench_points_table(standings),
+            "bench_points",
+            "Total points left on the bench across all gameweeks.",
+        )
+
+    with tab3:
+        show_award_board(
+            "Biggest Climb",
+            biggest_climb_table(standings),
+            "climb_score",
+            "GW20–38 points minus GW1–19 points. Highest positive difference wins.",
+        )
+
+    with tab4:
+        show_award_board(
+            "Most Captain Points",
+            captain_points_table(standings),
+            "captain_points",
+            "Sum of captain points across all gameweeks, including captain multiplier.",
+        )
+
+    with tab5:
+        show_award_board(
+            "Highest GW Score Without Chip",
+            highest_gw_without_chip(standings),
+            "points",
+            "Highest single-gameweek score where no Wildcard, Free Hit, Triple Captain or Bench Boost was used.",
+        )
+
+    with tab6:
+        df = worst_chip_usage_table(standings)
+        show_award_board(
+            "Ctrl + Z Award",
+            df,
+            "impact",
+            "Worst qualifying chip usage. Thresholds: TC < 6, FH < 40, BB < 8. Lower impact is worse.",
+            ascending=True,
+        )
+
+    with tab7:
+        show_award_board(
+            "Wooden Spoon",
+            wooden_spoon_table(standings),
+            "total_points",
+            "Lowest total points among active managers. Active = at least 25 GWs with transfers or chips; fallback uses lowest overall if none qualify.",
+            ascending=True,
+        )
+
 
 elif page == "Rules":
     st.subheader("Prize Rules")

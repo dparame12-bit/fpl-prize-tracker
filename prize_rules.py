@@ -254,3 +254,28 @@ def prize_summary(standings: pd.DataFrame) -> pd.DataFrame:
         base[c] = base[c].fillna(0).astype(int)
     base['known_prize_total'] = base[prize_cols].sum(axis=1)
     return base.sort_values(['known_prize_total', 'total_points'], ascending=[False, False])
+
+
+def mid_season_table(standings: pd.DataFrame) -> pd.DataFrame:
+    all_gw = _all_gw_rows(standings)
+    if all_gw.empty or not (all_gw["GW"] == 19).any():
+        return pd.DataFrame()
+    return (
+        all_gw[all_gw["GW"] == 19]
+        .rename(columns={"cumulative_points": "total_points_gw19"})
+        .sort_values("total_points_gw19", ascending=False)
+        [["entry_id", "team_name", "manager_name", "total_points_gw19"]]
+        .reset_index(drop=True)
+    )
+
+def bench_points_table(standings: pd.DataFrame) -> pd.DataFrame:
+    all_gw = _all_gw_rows(standings)
+    if all_gw.empty:
+        return pd.DataFrame()
+    return (
+        all_gw.groupby(["entry_id", "team_name", "manager_name"], as_index=False)["points_on_bench"]
+        .sum()
+        .rename(columns={"points_on_bench": "bench_points"})
+        .sort_values("bench_points", ascending=False)
+        .reset_index(drop=True)
+    )
