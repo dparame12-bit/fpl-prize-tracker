@@ -305,6 +305,173 @@ elif page == "Prize Summary":
 
     render_prize_summary_table(df2)
 
+
+elif page == "Special Awards":
+    st.subheader("Special Awards — Live Leaderboards")
+    st.caption("Each award has its own leaderboard and visual so everyone can see how the winner is decided.")
+
+    def safe_df(title, fn):
+        try:
+            data = fn(standings)
+            if data is None:
+                return pd.DataFrame()
+            return data
+        except Exception as e:
+            st.error(f"{title} could not load: {e}")
+            return pd.DataFrame()
+
+    def award_cards(df, metric_col, label=None):
+        if df is None or df.empty:
+            st.info("No data available yet.")
+            return False
+        winner = df.iloc[0]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Current Winner", winner.get("team_name", ""))
+        c2.metric("Manager", winner.get("manager_name", ""))
+        c3.metric(label or metric_col.replace("_", " ").title(), winner.get(metric_col, ""))
+        return True
+
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        "Mid Season", "Bench Points", "Biggest Climb", "Captain Points",
+        "Highest GW No Chip", "Transfer Tactician", "Ctrl + Z", "Wooden Spoon"
+    ])
+
+    with tab1:
+        st.markdown("### Mid Season Winner")
+        df = safe_df("Mid Season Winner", mid_season_table)
+        if not df.empty:
+            winners = df[df["is_winner"]] if "is_winner" in df.columns else df.head(1)
+            winner_names = ", ".join(winners["team_name"].astype(str).tolist())
+            split_prize = winners["mid_season_prize"].iloc[0] if "mid_season_prize" in winners.columns else 500
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Winner(s)", winner_names)
+            c2.metric("GW19 Points", int(winners["total_points_gw19"].iloc[0]))
+            c3.metric("Prize Each", f"₹{split_prize:,.0f}" if float(split_prize).is_integer() else f"₹{split_prize:,.2f}")
+            chart_df = df.head(15).copy()
+            chart_df["winner_status"] = chart_df["is_winner"].map({True: "Winner", False: "Others"}) if "is_winner" in chart_df.columns else "Others"
+            chart = alt.Chart(chart_df).mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5).encode(
+                x=alt.X("total_points_gw19:Q", title="Total Points at GW19"),
+                y=alt.Y("team_name:N", sort="-x", title="Team"),
+                color=alt.Color("winner_status:N", scale=alt.Scale(domain=["Winner", "Others"], range=["#f59e0b", "#94a3b8"])),
+                tooltip=list(chart_df.columns),
+            ).properties(height=430)
+            st.altair_chart(chart, use_container_width=True)
+            out=df.reset_index(drop=True); out.insert(0,"rank",out.index+1)
+            st.dataframe(top3_style(out,"rank"), use_container_width=True, hide_index=True)
+
+    with tab2:
+        st.markdown("### Most Points on Bench")
+        df = safe_df("Bench Points", bench_points_table)
+        if award_cards(df, "bench_points"):
+            chart=alt.Chart(df.head(15)).mark_bar(cornerRadiusTopLeft=5,cornerRadiusTopRight=5).encode(
+                x=alt.X("bench_points:Q", title="Bench Points"),
+                y=alt.Y("team_name:N", sort="-x", title="Team"),
+                color=alt.Color("bench_points:Q", scale=alt.Scale(scheme="orangered"), legend=None),
+                tooltip=list(df.columns),
+            ).properties(height=430)
+            st.altair_chart(chart, use_container_width=True)
+            out=df.reset_index(drop=True); out.insert(0,"rank",out.index+1)
+            st.dataframe(top3_style(out,"rank"), use_container_width=True, hide_index=True)
+
+    with tab3:
+        st.markdown("### Biggest Climb")
+        df = safe_df("Biggest Climb", biggest_climb_table)
+        if award_cards(df, "climb_score"):
+            chart_df=df.head(15).copy()
+            chart_df["winner_status"]=["Winner" if i==0 else "Others" for i in range(len(chart_df))]
+            chart=alt.Chart(chart_df).mark_bar(cornerRadiusTopLeft=5,cornerRadiusTopRight=5).encode(
+                x=alt.X("climb_score:Q", title="GW20–38 minus GW1–19"),
+                y=alt.Y("team_name:N", sort="-x", title="Team"),
+                color=alt.Color("winner_status:N", scale=alt.Scale(domain=["Winner","Others"], range=["#22c55e","#94a3b8"]), legend=None),
+                tooltip=list(chart_df.columns),
+            ).properties(height=430)
+            st.altair_chart(chart, use_container_width=True)
+            out=df.reset_index(drop=True); out.insert(0,"rank",out.index+1)
+            st.dataframe(top3_style(out,"rank"), use_container_width=True, hide_index=True)
+
+    with tab4:
+        st.markdown("### Most Captain Points")
+        df = safe_df("Captain Points", captain_points_table)
+        if award_cards(df, "captain_points"):
+            chart=alt.Chart(df.head(15)).mark_bar(cornerRadiusTopLeft=5,cornerRadiusTopRight=5).encode(
+                x=alt.X("captain_points:Q", title="Captain Points"),
+                y=alt.Y("team_name:N", sort="-x", title="Team"),
+                color=alt.Color("team_name:N", scale=alt.Scale(scheme="tableau20"), legend=None),
+                tooltip=list(df.columns),
+            ).properties(height=430)
+            st.altair_chart(chart, use_container_width=True)
+            out=df.reset_index(drop=True); out.insert(0,"rank",out.index+1)
+            st.dataframe(top3_style(out,"rank"), use_container_width=True, hide_index=True)
+
+    with tab5:
+        st.markdown("### Highest GW Score Without Chip")
+        df = safe_df("Highest GW Without Chip", highest_gw_without_chip)
+        if award_cards(df, "points"):
+            chart=alt.Chart(df.head(15)).mark_bar(cornerRadiusTopLeft=5,cornerRadiusTopRight=5).encode(
+                x=alt.X("team_name:N", sort="-y", title="Team"),
+                y=alt.Y("points:Q", title="Best No-Chip GW Score"),
+                color=alt.Color("GW:O", scale=alt.Scale(scheme="viridis"), title="GW"),
+                tooltip=list(df.columns),
+            ).properties(height=430)
+            st.altair_chart(chart, use_container_width=True)
+            out=df.reset_index(drop=True); out.insert(0,"rank",out.index+1)
+            st.dataframe(top3_style(out,"rank"), use_container_width=True, hide_index=True)
+
+    with tab6:
+        st.markdown("### Transfer Tactician")
+        df = safe_df("Transfer Tactician", transfer_tactician_table)
+        if award_cards(df, "net_transfer_points"):
+            chart=alt.Chart(df.head(15)).mark_bar(cornerRadiusTopLeft=5,cornerRadiusTopRight=5).encode(
+                x=alt.X("net_transfer_points:Q", title="Net Transfer Points"),
+                y=alt.Y("team_name:N", sort="-x", title="Team"),
+                color=alt.Color("net_transfer_points:Q", scale=alt.Scale(scheme="greens"), legend=None),
+                tooltip=list(df.columns),
+            ).properties(height=430)
+            st.altair_chart(chart, use_container_width=True)
+            out=df.reset_index(drop=True); out.insert(0,"rank",out.index+1)
+            st.dataframe(top3_style(out,"rank"), use_container_width=True, hide_index=True)
+
+    with tab7:
+        st.markdown("### Ctrl + Z Award")
+        df = safe_df("Ctrl + Z", ctrl_z_breakdown_table)
+        if not df.empty:
+            q = df[df["qualifies_for_ctrl_z"]] if "qualifies_for_ctrl_z" in df.columns else pd.DataFrame()
+            if not q.empty:
+                winner=q.sort_values("impact", ascending=True).iloc[0]
+                c1,c2,c3=st.columns(3)
+                c1.metric("Current Ctrl + Z", winner["team_name"])
+                c2.metric("Chip", winner["chip"])
+                c3.metric("Impact", winner["impact"])
+            else:
+                st.warning("No chip usage currently meets the Ctrl + Z thresholds.")
+            chart_df=df.copy()
+            chart_df["qualifies"]=chart_df["qualifies_for_ctrl_z"].map({True:"Qualifies",False:"Does not qualify"}) if "qualifies_for_ctrl_z" in chart_df.columns else "N/A"
+            chart=alt.Chart(chart_df).mark_circle(size=300).encode(
+                x=alt.X("GW:O", title="Gameweek"),
+                y=alt.Y("impact:Q", title="Chip Impact"),
+                color=alt.Color("chip:N", scale=alt.Scale(scheme="set1")),
+                shape=alt.Shape("qualifies:N"),
+                tooltip=list(chart_df.columns),
+            ).properties(height=430)
+            st.altair_chart(chart, use_container_width=True)
+            out=df.reset_index(drop=True); out.insert(0,"rank",out.index+1)
+            st.dataframe(top3_style(out,"rank"), use_container_width=True, hide_index=True)
+
+    with tab8:
+        st.markdown("### Wooden Spoon")
+        df = safe_df("Wooden Spoon", wooden_spoon_table)
+        if award_cards(df, "total_points"):
+            chart=alt.Chart(df.head(15)).mark_bar(cornerRadiusTopLeft=5,cornerRadiusTopRight=5).encode(
+                x=alt.X("total_points:Q", title="Total Points"),
+                y=alt.Y("team_name:N", sort="x", title="Team"),
+                color=alt.Color("active_gws:Q", scale=alt.Scale(scheme="blues"), title="Active GWs"),
+                tooltip=list(df.columns),
+            ).properties(height=430)
+            st.altair_chart(chart, use_container_width=True)
+            out=df.reset_index(drop=True); out.insert(0,"rank",out.index+1)
+            st.dataframe(top3_style(out,"rank"), use_container_width=True, hide_index=True)
+
+
 elif page == "Rules":
     st.subheader("Prize Rules")
     st.markdown("""
